@@ -3,7 +3,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
-from tools import orientation, find_P0, create_branch, direction
+from tools import orientation, find_P0, create_branch, direction, move_points_along_line
 
 """
 根据Excel内首行title类型[title修改行：113]判断component类型(南大打组案例Waiting)
@@ -175,10 +175,8 @@ def process_data():
                         hierarchy['PIPE'].add_child(branch)
                     hierarchy['BRANCH'] = branch
 
-                    # center = findposition(row_dict["center_id"])
                     p1 = findposition(row_dict["p1_id"])
                     p2 = findposition(row_dict["p2_id"])
-                    # POS = find_P0(p1, p2, center)
                     ORI = orientation("elbow", POS, p1, p2)
                     bore = row_dict["Processed Diameter_DN"]
                     angle = row_dict["angle"]
@@ -269,7 +267,156 @@ def process_data():
                     if 'PIPE' in hierarchy:
                         hierarchy['PIPE'].add_child(branch)
                     hierarchy['BRANCH'] = branch
-            else: continue
+
+            elif sheet_name == "Redu Parameters":
+                for index, row in df.iterrows():
+                    branch_name = f"/PIPE1/B{level_counts['BRANCH']}"
+
+                    row_dict = row.to_dict()
+                    hpos = (float(row_dict["P0_x"]), float(row_dict["P0_y"]), float(row_dict["P0_z"]))
+                    tpos = (float(row_dict["P2_x"]), float(row_dict["P2_y"]), float(row_dict["P2_z"]))
+                    hdir = direction(hpos, tpos)
+                    tdir = direction(tpos, hpos)
+                    hbor = int(row_dict["Processed Diameter_DN1"])
+                    tbor = int(row_dict["Processed Diameter_DN2"])
+                    hstu = map_name("tube", hbor)
+                    branch_attributes = create_branch(hpos, tpos, hdir, tdir, hbor, tbor, hstu)
+                    branch = E3DModel("BRANCH", branch_name, branch_attributes)
+                    level_counts['BRANCH'] += 1
+                    if 'PIPE' in hierarchy:
+                        hierarchy['PIPE'].add_child(branch)
+                    hierarchy['BRANCH'] = branch
+
+                    POS = hpos
+                    p2 = tpos
+                    bore1 = hbor
+                    bore2 = tbor
+                    ORI = orientation('redu', POS, p2)
+                    SPRE = map_name("redu", bore1, bore2)
+                    LSTU = map_name("tube", bore2)
+
+                    redu_attributes = {
+                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
+                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
+                        # 必填数据——弯头元件的朝向
+                        "BUIl": "false",
+                        "SHOP": "true",
+                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
+                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
+                        "ORIF": "true",
+                        "POSF": "true"
+                                "\n"
+                    }
+                    component_name = f"/REDU-{level_counts['COMPONENT']}"
+                    component = E3DModel("REDUCER", component_name, redu_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+            elif sheet_name == "Flan Parameters":
+                for i in range(0, len(df), 2):
+                    rows = df.iloc[i:i + 2]
+                    row1 = rows.iloc[0]
+                    row2 = rows.iloc[1]
+                    row1_dict = row1.to_dict()
+                    row2_dict = row2.to_dict()
+                    branch_name = f"/PIPE1/B{level_counts['BRANCH']}"
+
+                    r2_0 = (float(row2_dict["P0_x"]), float(row2_dict["P0_y"]), float(row2_dict["P0_z"]))
+                    r2_2 = (float(row2_dict["P2_x"]), float(row2_dict["P2_y"]), float(row2_dict["P2_z"]))
+                    r2_0,r2_2 = move_points_along_line(r2_0, r2_2, 4.5)
+
+                    hpos = (float(row1_dict["P2_x"]), float(row1_dict["P2_y"]), float(row1_dict["P2_z"]))
+                    tpos = r2_2
+                    hdir = direction(hpos, tpos)
+                    tdir = direction(tpos, hpos)
+                    hbor = int(row1_dict["Processed Diameter_DN"])
+                    tbor = int(row2_dict["Processed Diameter_DN"])
+                    hstu = map_name("tube", hbor)
+                    branch_attributes = create_branch(hpos, tpos, hdir, tdir, hbor, tbor, hstu)
+                    branch = E3DModel("BRANCH", branch_name, branch_attributes)
+                    level_counts['BRANCH'] += 1
+                    if 'PIPE' in hierarchy:
+                        hierarchy['PIPE'].add_child(branch)
+                    hierarchy['BRANCH'] = branch
+
+                    POS = (float(row1_dict["P0_x"]), float(row1_dict["P0_y"]), float(row1_dict["P0_z"]))
+                    p2 = hpos
+                    ORI = orientation('redu', POS, p2)
+                    bore = hbor
+                    SPRE = map_name("flan", bore)
+                    LSTU = map_name("tube", bore)
+                    flan_attributes = {
+                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
+                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
+                        # 必填数据——弯头元件的朝向
+                        "BUIl": "false",
+                        "SHOP": "true",
+                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
+                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
+                        "ORIF": "true",
+                        "POSF": "true",
+                        "ARRIVE": "2",
+                        "LEAVE": "1"
+                                "\n"
+                    }
+                    component_name = f"/FLAN-{level_counts['COMPONENT']}"
+                    component = E3DModel("FLANGE", component_name, flan_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+
+                    p2 = r2_0
+                    ORI = orientation('redu',POS, p2)
+                    SPRE = map_name("gask", bore)
+                    gasket_attributes = {
+                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
+                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
+                        # 必填数据——弯头元件的朝向
+                        "BUIl": "false",
+                        "SHOP": "true",
+                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
+                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
+                        "ORIF": "true",
+                        "POSF": "true",
+                        "ARRIVE": "2",
+                        "LEAVE": "1"
+                                 "\n"
+                    }
+                    component_name = f"/GASK-{level_counts['COMPONENT']}"
+                    component = E3DModel("GASKET", component_name, gasket_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+                    POS = r2_0
+                    p2 = r2_2
+                    ORI = orientation('redu', POS, p2)
+                    bore = tbor
+                    SPRE = map_name("flan", bore)
+                    LSTU = map_name("tube", bore)
+                    flan_attributes = {
+                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
+                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
+                        # 必填数据——弯头元件的朝向
+                        "BUIl": "false",
+                        "SHOP": "true",
+                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
+                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
+                        "ORIF": "true",
+                        "POSF": "true"
+                                "\n"
+                    }
+                    component_name = f"/FLAN-{level_counts['COMPONENT']}"
+                    component = E3DModel("FLANGE", component_name, flan_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
 
     # 生成命令
     commands = site.generate_commands()
@@ -297,8 +444,8 @@ def map_name(type, bore1, bore2=None, angle=None):
         return dic_redu[(bore1, bore2)]
     elif type == 'flan':
         return dic_flan[bore1]
-
-
+    elif type == 'gask':
+        return dic_gask[bore1]
 
 
  # 预处理：创建dn对应字典
@@ -308,11 +455,13 @@ df_tube = sheets_ref["tube"]
 df_tee = sheets_ref["tee"]
 df_redu = sheets_ref["redu"]
 df_flan = sheets_ref["flan"]
+df_gask = sheets_ref["gask"]
 dic_tube = dict(zip(df_tube.iloc[:, 2], df_tube.iloc[:, 0]))
 dic_elbow = dict(zip(zip(df_elbow.iloc[:, 2], df_elbow.iloc[:, 3]), df_elbow.iloc[:, 0]))
 dic_tee = dict(zip(zip(df_tee.iloc[:, 2], df_tee.iloc[:, 3]), df_tee.iloc[:, 0]))
 dic_redu = dict(zip(zip(df_redu.iloc[:, 2], df_redu.iloc[:, 3]), df_redu.iloc[:, 0]))
 dic_flan = dict(zip(df_flan.iloc[:, 2], df_flan.iloc[:, 0]))
+dic_gask = dict(zip(df_gask.iloc[:, 2], df_gask.iloc[:, 0]))
 
 # 创建处理数据按钮
 tk.Button(root, text="点一下|自动出来PML命令！", command=process_data).pack(pady=20)

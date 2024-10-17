@@ -2,6 +2,7 @@ from typing import Any
 
 import pandas as pd
 import numpy as np
+import math
 from numpy import ndarray, dtype
 
 
@@ -58,7 +59,7 @@ def direction(p1, p2):
     dir1,dir2 = calc_angle(p1p2)
     return (dir1,dir2)
 
-def orientation(type,p0,p1,p2,p3 = None):
+def orientation(type,p0,p1,p2 = None,p3 = None):
     if type=='elbow':
         p0 = np.array(p0)
         p1 = np.array(p1)
@@ -79,6 +80,13 @@ def orientation(type,p0,p1,p2,p3 = None):
         p0p3 = p3 - p0
         angle_z1, angle_z2 = calc_angle(p0p3)
         return (angle_x1, angle_x2, angle_z1, angle_z2)
+
+    if type == 'redu':
+        p0 = np.array(p0)
+        p1 = np.array(p1)
+        p0p1 = p1 - p0
+        angle_x1, angle_x2 = calc_angle(p0p1)
+        return (angle_x1,angle_x2)
 
 
 #计算向量相对于e,u轴的角度
@@ -107,6 +115,44 @@ def read_group(location:str):
         group = [eval(s) for s in group]
         groups.append(group)
     return groups
+
+
+def move_points_along_line(p1, p2, distance):
+    """
+    移动p1和p2点到沿p1p2方向的指定距离。
+
+    参数：
+    p1: tuple (x1, y1, z1)，表示起始点的三维坐标。
+    p2: tuple (x2, y2, z2)，表示终止点的三维坐标。
+    distance: float，表示要移动的距离。
+
+    返回值：
+    tuple (new_p1, new_p2)，表示p1和p2沿p1p2方向移动后的新坐标。
+    """
+    # 计算方向向量
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    dz = p2[2] - p1[2]
+
+    # 归一化方向向量
+    length = math.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
+    if length == 0:
+        raise ValueError("p1和p2不能是同一个点")
+    unit_direction = (dx / length, dy / length, dz / length)
+
+    # 计算p1的新坐标
+    new_p1_x = p1[0] + unit_direction[0] * distance
+    new_p1_y = p1[1] + unit_direction[1] * distance
+    new_p1_z = p1[2] + unit_direction[2] * distance
+    new_p1 = (new_p1_x, new_p1_y, new_p1_z)
+
+    # 计算p2的新坐标
+    new_p2_x = p2[0] + unit_direction[0] * distance
+    new_p2_y = p2[1] + unit_direction[1] * distance
+    new_p2_z = p2[2] + unit_direction[2] * distance
+    new_p2 = (new_p2_x, new_p2_y, new_p2_z)
+
+    return new_p1, new_p2
 
 
 # 创建branch
