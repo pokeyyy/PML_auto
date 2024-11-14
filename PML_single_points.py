@@ -3,13 +3,8 @@ import os
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
-from tools import orientation, find_P0, create_branch, direction, move_points_along_line
-
-"""
-根据Excel内首行title类型[title修改行：113]判断component类型(南大打组案例Waiting)
-注意：管件坐标值尚未填写（所有必填命令同理），生成的PML命令不完整
-"""
-
+from tools import orientation, find_P0, direction, move_points_along_line, transcoord, round_to_nearest
+from E3DModel import E3DModel, create_branch, create_PIPE, create_component_1, create_component_2, create_component_3
 
 # 创建主窗口
 root = tk.Tk()
@@ -63,35 +58,6 @@ def process_data():
         messagebox.showerror("输入错误", "请填写所有路径")
         return
 
-    class E3DModel:
-        def __init__(self, model_type, name, attributes=None, children=None):
-            self.model_type = model_type
-            self.name = name
-            self.attributes = attributes if attributes else {}
-            self.children = children if children else []
-
-        def add_attribute(self, key, value):
-            self.attributes[key] = value
-
-        def add_child(self, child):
-            self.children.append(child)
-
-        # 左对齐开关=left_align，调试的时候用
-        def generate_commands(self, indent=0, left_align = True):
-            indent_str = '' if left_align else ' ' * indent
-            commands = []
-
-            commands.append(f"{indent_str}NEW {self.model_type} {self.name}")
-
-            for key, value in self.attributes.items():
-                commands.append(f"{indent_str}{key} {value}")
-
-            for child in self.children:
-                commands.extend(child.generate_commands(indent + 4, left_align))
-
-            commands.append(f"{indent_str}END")
-            return commands
-
     # 输出目录
     output_dir = folder
     os.makedirs(output_dir, exist_ok=True)
@@ -122,26 +88,8 @@ def process_data():
 
     # 创建PIPE层级
     pipe_name = f"/PIPE{level_counts['PIPE']}"
-    pipe = E3DModel("PIPE", pipe_name, {
-        # 必填项：TEMP PSPE BORE
-        "BUIL": "false",
-        "SHOP": "false",
-        "TEMP": "-100000degC",  # 管道温度跟保温层厚度相关
-        "PRES": "0pascal",
-        "TPRESS": "0pascal",
-        "PSPE": "SPECIFICATION /NJU-SPEC",
-        "CCEN": "0",
-        "CCLA": "0",
-        "LNTP": "unset",
-        "BORE": "100mm",
-        "DUTY": "'unset'",
-        "DSCO": "'unset'",
-        "PTSP": "'unset'",
-        "INSC": "'unset'",
-        "DELDSG": "FALSE",
-        "PLANU": "unset"
-                     "\n"
-        })
+    pip_attributes = create_PIPE()
+    pipe = E3DModel("PIPE", pipe_name, pip_attributes)
     level_counts['PIPE'] += 1
     if 'ZONE' in hierarchy:
         hierarchy['ZONE'].add_child(pipe)
@@ -151,17 +99,17 @@ def process_data():
     for base_file_path in base_file_paths:
         sheets = pd.read_excel(base_file_path,sheet_name=None)
         for sheet_name, df in sheets.items():
-            if sheet_name == "Anchor Parameters": continue
-            elif sheet_name == "Elbow Parameters":
+            if sheet_name == "elbows":
                 for index, row in df.iterrows():
                     # 为每个component创建一个branch
-                    branch_name = f"/PIPE1/B{level_counts['BRANCH']}"
-
                     row_dict = row.to_dict()
+                    if(row_dict["Processed Diameter_DN"] == -1):
+                        continue
 
-                    hpos = findposition(row_dict["p1_id"])
-                    tpos = findposition(row_dict["p2_id"])
-                    center = findposition(row_dict["center_id"])
+                    branch_name = f"/PIPE1/B{level_counts['BRANCH']}"
+                    hpos = transcoord(row_dict["coord1"])
+                    tpos = transcoord(row_dict["coord2"])
+                    center = transcoord(row_dict["center_coord"])
                     POS = find_P0(hpos, tpos, center)
                     hdir = direction(hpos,POS)
                     tdir = direction(tpos,POS)
@@ -170,30 +118,22 @@ def process_data():
                     hstu = map_name("tube", hbor)
                     branch_attributes = create_branch(hpos,tpos, hdir, tdir,hbor,tbor,hstu)
                     branch = E3DModel("BRANCH", branch_name,branch_attributes)
+
                     level_counts['BRANCH'] += 1
                     if 'PIPE' in hierarchy:
                         hierarchy['PIPE'].add_child(branch)
                     hierarchy['BRANCH'] = branch
 
-                    p1 = findposition(row_dict["p1_id"])
-                    p2 = findposition(row_dict["p2_id"])
+                    p1 = hpos
+                    p2 = tpos
                     ORI = orientation("elbow", POS, p1, p2)
                     bore = row_dict["Processed Diameter_DN"]
-                    angle = row_dict["angle"]
+                    angle = round_to_nearest(row_dict["angle"])
+
                     SPRE = map_name("elbow", bore, angle=angle)
                     LSTU = map_name("tube", bore)
-                    elbow_attributes = {
-                        "POS": f"E {POS[0]:.3f}mm N {POS[1]:.3f}mm U {POS[2]:.3f}mm",  # 必填数据——弯头元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U and Z is E{round(ORI[2])}N{round(ORI[3])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true"
-                                "\n"
-                    }
+
+                    elbow_attributes = create_component_1(POS,ORI,SPRE,LSTU)
                     component_name = f"/ELBOW-{level_counts['COMPONENT']}"
                     component = E3DModel("ELBOW", component_name, elbow_attributes)
                     level_counts['COMPONENT'] += 1
@@ -201,13 +141,14 @@ def process_data():
                         hierarchy['BRANCH'].add_child(component)
                     hierarchy['COMPONENT'] = component
 
-            elif sheet_name == "Tee Parameters":
+#数据量不足，暂未添加-1标记
+            elif sheet_name == "teess":
                 for index, row in df.iterrows():
                     branch_name = f"/PIPE1/B{level_counts['BRANCH']}"
 
                     row_dict = row.to_dict()
-                    hpos = findposition(row_dict["top_1_id"])
-                    tpos = findposition(row_dict["bottom_1_id"])
+                    hpos = transcoord(row_dict["top1"])
+                    tpos = transcoord(row_dict["bottom1"])
                     hdir = direction(hpos,tpos)
                     tdir = direction(tpos,hpos)
                     hbor = row_dict["Processed Diameter_DN1"]
@@ -220,28 +161,17 @@ def process_data():
                         hierarchy['PIPE'].add_child(branch)
                     hierarchy['BRANCH'] = branch
 
-                    POS = findposition(row_dict["bottom_2_id"])
-                    p1 = findposition(row_dict["top_1_id"])
-                    p2 = findposition(row_dict["bottom_1_id"])
-                    p3 = findposition(row_dict["top_2_id"])
+                    POS = transcoord(row_dict["bottom2"])
+                    p1 = hpos
+                    p2 = tpos
+                    p3 = transcoord(row_dict["top2"])
                     ORI = orientation('tee', POS, p1, p2, p3)
                     bore1 = row_dict["Processed Diameter_DN1"]
                     bore2 = row_dict["Processed Diameter_DN2"]
                     SPRE = map_name("tee", bore1, bore2)
                     LSTU = map_name("tube", bore1)
 
-                    tee_attributes = {
-                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U and Z is E{round(ORI[2])}N{round(ORI[3])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true"
-                                "\n"
-                    }
+                    tee_attributes = create_component_1(POS,ORI,SPRE,LSTU)
                     component_name = f"/TEE-{level_counts['COMPONENT']}"
                     component = E3DModel("TEE", component_name, tee_attributes)
                     level_counts['COMPONENT'] += 1
@@ -249,13 +179,16 @@ def process_data():
                         hierarchy['BRANCH'].add_child(component)
                     hierarchy['COMPONENT'] = component
 
-            elif sheet_name == "Cylinder Parameters":
+            elif sheet_name == "cylinders":
                 for index, row in df.iterrows():
                     branch_name = f"/PIPE1/B{level_counts['BRANCH']}"
 
                     row_dict = row.to_dict()
-                    hpos = findposition(row_dict["top_id"])
-                    tpos = findposition(row_dict["bottom_id"])
+                    if (row_dict["Processed Diameter_DN"] == -1):
+                        continue
+
+                    hpos = transcoord(row_dict["top_center"])
+                    tpos = transcoord(row_dict["bottom_center"])
                     hdir = direction(hpos,tpos)
                     tdir = direction(tpos,hpos)
                     hbor = row_dict["Processed Diameter_DN"]
@@ -295,18 +228,7 @@ def process_data():
                     SPRE = map_name("redu", bore1, bore2)
                     LSTU = map_name("tube", bore2)
 
-                    redu_attributes = {
-                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true"
-                                "\n"
-                    }
+                    redu_attributes = create_component_2(POS,ORI,SPRE,LSTU)
                     component_name = f"/REDU-{level_counts['COMPONENT']}"
                     component = E3DModel("REDUCER", component_name, redu_attributes)
                     level_counts['COMPONENT'] += 1
@@ -337,18 +259,7 @@ def process_data():
                     SPRE = map_name("valv", bore)
                     LSTU = hstu
 
-                    valv_attributes = {
-                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true"
-                                "\n"
-                    }
+                    valv_attributes = create_component_2(POS,ORI,SPRE,LSTU)
                     component_name = f"/VALV-{level_counts['COMPONENT']}"
                     component = E3DModel("VALVE", component_name, valv_attributes)
                     level_counts['COMPONENT'] += 1
@@ -389,20 +300,8 @@ def process_data():
                     bore = hbor
                     SPRE = map_name("flan", bore)
                     LSTU = map_name("tube", bore)
-                    flan_attributes = {
-                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true",
-                        "ARRIVE": "2",
-                        "LEAVE": "1"
-                                "\n"
-                    }
+
+                    flan_attributes = create_component_3(POS,ORI,SPRE,LSTU,2,1)
                     component_name = f"/FLAN-{level_counts['COMPONENT']}"
                     component = E3DModel("FLANGE", component_name, flan_attributes)
                     level_counts['COMPONENT'] += 1
@@ -414,20 +313,7 @@ def process_data():
                     p2 = r2_0
                     ORI = orientation('redu',POS, p2)
                     SPRE = map_name("gask", bore)
-                    gasket_attributes = {
-                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true",
-                        "ARRIVE": "2",
-                        "LEAVE": "1"
-                                 "\n"
-                    }
+                    gasket_attributes = create_component_3(POS,ORI,SPRE,LSTU,2,1)
                     component_name = f"/GASK-{level_counts['COMPONENT']}"
                     component = E3DModel("GASKET", component_name, gasket_attributes)
                     level_counts['COMPONENT'] += 1
@@ -441,18 +327,7 @@ def process_data():
                     bore = tbor
                     SPRE = map_name("flan", bore)
                     LSTU = map_name("tube", bore)
-                    flan_attributes = {
-                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true"
-                                "\n"
-                    }
+                    flan_attributes = create_component_3(POS,ORI,SPRE,LSTU,1,2)
                     component_name = f"/FLAN-{level_counts['COMPONENT']}"
                     component = E3DModel("FLANGE", component_name, flan_attributes)
                     level_counts['COMPONENT'] += 1

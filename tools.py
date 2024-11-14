@@ -189,6 +189,22 @@ def create_branch(hpos,tpos,hdir,tdir,hbor,tbor,hstu):
                   "\n"
     }
 
+#对于[323.08437778372667, 379.3669199267068, 5.190823758635305]形式的转化
+def transcoord(coord):
+    coord = coord.split(",")
+    coord[0] = float(coord[0].split('[')[1])
+    coord[1] = float(coord[1])
+    coord[2] = float(coord[2].split(']')[0])
+    coord = np.asarray(coord)
+    coord = coord * 1000
+    return coord
+
+def round_to_nearest(value):
+    value = float(value)
+    targets = [45, 90]
+    closest = min(targets, key=lambda x: abs(x - value))
+    return closest
+
 # 测试
 if __name__ == '__main__':
     P1 = [40342.38556,13348.83315,3900]  # 第一个端点
