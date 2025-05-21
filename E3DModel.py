@@ -27,16 +27,23 @@ class E3DModel:
         commands.append(f"{indent_str}END")
         return commands
 
+#ZONE层
+def create_ZONE(purp):
+    return {
+        "PURP": f"{purp}"
+    }
+
 #PIPE层
-def create_PIPE():
+def create_PIPE(purp):
     return{
         # 必填项：TEMP PSPE BORE
+        "PURP": f"{purp}",
         "BUIL": "false",
         "SHOP": "false",
         "TEMP": "-100000degC",  # 管道温度跟保温层厚度相关
         "PRES": "0pascal",
         "TPRESS": "0pascal",
-        "PSPE": "SPECIFICATION /NJU-SPEC",
+        "PSPE": "SPECIFICATION /1C0031",
         "CCEN": "0",
         "CCLA": "0",
         "LNTP": "unset",
@@ -51,9 +58,10 @@ def create_PIPE():
     }
 
 #branch
-def create_branch(hpos,tpos,hdir,tdir,hbor,tbor,hstu):
+def create_branch(hpos,tpos,hdir,tdir,hbor,tbor,hstu,purp):
     return {
         # 必填项：HPOS TPOS HDIR TDIR LHEA LTAI HBOR TBOR HCON DETA TEMP HSTU PSPE TCON
+        "PURP": f"{purp}",
         "BUIL": "false",
         "SHOP": "false",
         "HPOS": f"E {hpos[0]:.3f}mm N {hpos[1]:.3f}mm U {hpos[2]:.3f}mm",
@@ -73,7 +81,7 @@ def create_branch(hpos,tpos,hdir,tdir,hbor,tbor,hstu):
         "HSTU": f"SPCOMPONENT {hstu}",
         "CCEN": "0",  # 默认为"0"
         "CCLA": "0",  # 默认为"0"
-        "PSPE": "SPECIFICATION /NJU-SPEC",
+        "PSPE": "SPECIFICATION /1C0031",
         "DUTY": "'unset'",
         "DSCO": "'unset'",
         "PTSP": "'unset'",

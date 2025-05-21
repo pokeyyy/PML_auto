@@ -40,16 +40,6 @@ def select_folder_path():
 tk.Button(root, text="输入路径", command=select_base_file_path).pack(pady=5)
 tk.Button(root, text="选择保存Excel文件路径", command=select_folder_path).pack(pady=5)
 
-# 得到anchor的坐标
-def findposition(id):
-    base_file_paths = base_file_path_entry.get().split(';')
-    df = pd.read_excel(base_file_paths[0], sheet_name="Anchor Parameters")
-    anchor = df.loc[df["tid"] == id]
-    print(anchor.iloc[0]["coord1"])
-    print(anchor.iloc[0]["coord2"])
-    print(anchor.iloc[0]["coord3"])
-    return (anchor.iloc[0]["coord1"],anchor.iloc[0]["coord2"],anchor.iloc[0]["coord3"])
-
 def process_data():
     base_file_paths = base_file_path_entry.get().split(';')
     folder = folder_path_entry.get()

@@ -5,6 +5,42 @@ import numpy as np
 import math
 from numpy import ndarray, dtype
 
+def get_angle(p0, p1, p2):
+    """
+    计算圆弧的中心角，并以度为单位返回结果。
+
+    参数：
+        A, B, C: 三维空间中的点坐标，长度为3的可迭代对象。
+            A, B 是圆弧的端点，C 是两条切线在端点处的交点。
+
+    返回：
+        圆心角（对应圆弧的角度，单位：度）。
+
+    计算原理：
+        1. 计算向量 CA, CB。
+        2. 计算切线夹角 θ = ∠ACB = arccos((CA·CB)/(|CA||CB|))。
+        3. 圆心角 φ = 180° - θ。
+    """
+    C = np.asarray(p0, dtype=float)
+    A = np.asarray(p1, dtype=float)
+    B = np.asarray(p2, dtype=float)
+
+    # 向量 CA, CB
+    v1 = A - C
+    v2 = B - C
+
+    # 计算切线夹角 θ
+    cos_theta = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    theta_rad = np.arccos(cos_theta)
+
+    # 转换为度
+    theta_deg = np.degrees(theta_rad)
+
+    # 圆心角 φ（度）
+    phi_deg = 180.0 - theta_deg
+    return phi_deg
+
 
 def find_P0(P1, P2, C):
     # 转换为 numpy 数组，方便计算
@@ -207,15 +243,12 @@ def round_to_nearest(value):
 
 # 测试
 if __name__ == '__main__':
-    P1 = [40342.38556,13348.83315,3900]  # 第一个端点
-    P2 = [40545.38556,13145.83315,3900]  # 第二个端点
-    C = [40342.38556,13145.83315,3900]  # 圆心
+    P1 = [378882.5835,346803.0776,5359.899035]  # 第一个端点
+    P2 = [378882.5835,346549.0776,5613.899035]  # 第二个端点
+    C = [378882.5835,346803.0776,5613.899035]  # 圆心
 
-    intersection = find_P0(P1, P2, C)
-    print("两条切线的交点坐标为：", intersection)
-    ori = orientation('elbow',intersection,P1,P2)
-    print(ori)
-
+    angle = get_angle(C, P1, P2)
+    print("angle：", angle)
 
 
 
