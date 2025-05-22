@@ -3,12 +3,8 @@ import os
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
-from tools import orientation, find_P0, read_group
-
-"""
-根据Excel内首行title类型[title修改行：113]判断component类型(南大打组案例Waiting)
-注意：管件坐标值尚未填写（所有必填命令同理），生成的PML命令不完整
-"""
+from tools import orientation, find_P0, direction, move_points_along_line, transcoord, round_to_nearest, get_angle
+from E3DModel import E3DModel, create_branch, create_PIPE, create_component_1, create_component_2, create_component_3, create_ZONE
 
 
 # 创建主窗口
@@ -48,11 +44,8 @@ tk.Button(root, text="选择保存Excel文件路径", command=select_folder_path
 # 得到anchor的坐标
 def findposition(id):
     base_file_paths = base_file_path_entry.get().split(';')
-    df = pd.read_excel(base_file_paths[0], sheet_name="Anchor Parameters")
+    df = pd.read_excel(base_file_paths[0], sheet_name="anchors")
     anchor = df.loc[df["tid"] == id]
-    print(anchor.iloc[0]["coord1"])
-    print(anchor.iloc[0]["coord2"])
-    print(anchor.iloc[0]["coord3"])
     return (anchor.iloc[0]["coord1"],anchor.iloc[0]["coord2"],anchor.iloc[0]["coord3"])
 
 def process_data():
@@ -62,35 +55,6 @@ def process_data():
     if not base_file_paths or not folder:
         messagebox.showerror("输入错误", "请填写所有路径")
         return
-
-    class E3DModel:
-        def __init__(self, model_type, name, attributes=None, children=None):
-            self.model_type = model_type
-            self.name = name
-            self.attributes = attributes if attributes else {}
-            self.children = children if children else []
-
-        def add_attribute(self, key, value):
-            self.attributes[key] = value
-
-        def add_child(self, child):
-            self.children.append(child)
-
-        # 左对齐开关=left_align，调试的时候用
-        def generate_commands(self, indent=0, left_align = True):
-            indent_str = '' if left_align else ' ' * indent
-            commands = []
-
-            commands.append(f"{indent_str}NEW {self.model_type} {self.name}")
-
-            for key, value in self.attributes.items():
-                commands.append(f"{indent_str}{key} {value}")
-
-            for child in self.children:
-                commands.extend(child.generate_commands(indent + 4, left_align))
-
-            commands.append(f"{indent_str}END")
-            return commands
 
     # 输出目录
     output_dir = folder
@@ -107,7 +71,7 @@ def process_data():
     }
 
     # 根层级SITE
-    site = E3DModel("SITE", f"/Dikaer-TEST-{level_counts['SITE']}\n")
+    site = E3DModel("SITE", f"/GL1001\n")
     level_counts['SITE'] += 1
 
     # 层级存储 字典
@@ -115,33 +79,16 @@ def process_data():
 
     # 创建ZONE层级
     zone_name = f"/ZONE{level_counts['ZONE']}\n"
-    zone = E3DModel("ZONE", zone_name)
+    zone_attributes = create_ZONE("PD")
+    zone = E3DModel("ZONE", zone_name, zone_attributes)
     level_counts['ZONE'] += 1
     hierarchy['SITE'].add_child(zone)
     hierarchy['ZONE'] = zone
 
     # 创建PIPE层级
-    pipe_name = f"/PIPE{level_counts['PIPE']}"
-    pipe = E3DModel("PIPE", pipe_name, {
-        # 必填项：TEMP PSPE BORE
-        "BUIL": "false",
-        "SHOP": "false",
-        "TEMP": "-100000degC",  # 管道温度跟保温层厚度相关
-        "PRES": "0pascal",
-        "TPRESS": "0pascal",
-        "PSPE": "SPECIFICATION /NJU-SPEC",
-        "CCEN": "0",
-        "CCLA": "0",
-        "LNTP": "unset",
-        "BORE": "100mm",
-        "DUTY": "'unset'",
-        "DSCO": "'unset'",
-        "PTSP": "'unset'",
-        "INSC": "'unset'",
-        "DELDSG": "FALSE",
-        "PLANU": "unset"
-                     "\n"
-        })
+    pipe_name = "/200-GH-R2271-RL1A-N"
+    pip_attributes = create_PIPE("PD")
+    pipe = E3DModel("PIPE", pipe_name, pip_attributes)
     level_counts['PIPE'] += 1
     if 'ZONE' in hierarchy:
         hierarchy['ZONE'].add_child(pipe)
@@ -149,151 +96,11 @@ def process_data():
 
 
     for base_file_path in base_file_paths:
-        groups = read_group(base_file_path)
-        sheets = pd.read_excel(base_file_path, sheet_name=None)
-        df_elbow = sheets["Elbow Parameters"]
-        df_tee = sheets["Tee Parameters"]
-        df_tube = sheets["Cylinder Parameters"]
-        #按组创建
-        for group in groups:
-            group_head = group[0]
-            group_tail = group[-1]
-            anchor_head = -1
-            anchor_tail = -1
-            hbor = tbor = -1
-            if(group_head[0] == "cylinder"):
-                head = df_tube.loc[df_tube["tid"] == group_head[1]]
-                anchor_head = head.iloc[0]["top_id"]
-                hbor = head.iloc[0]["Processed Diameter_DN"]
-                tail = df_tube.loc[df_tube["tid"] == group_tail[1]]
-                anchor_tail = tail.iloc[0]["bottom_id"]
-                tbor = tail.iloc[0]["Processed Diameter_DN"]
+        get_seq(base_file_path)
+        sheet = pd.read_excel(base_file_path,sheet_name='groups')
 
-            elif(group_head[0] == "elbow"):
-                head = df_elbow.loc[df_elbow["tid"] == group_head[1]]
-                anchor_head = head.iloc[0]["p1_id"]
-                hbor = head.iloc[0]["Processed Diameter_DN"]
-                tail = df_elbow.loc[df_elbow["tid"] == group_tail[1]]
-                anchor_tail = tail.iloc[0]["p2_id"]
-                tbor = tail.iloc[0]["Processed Diameter_DN"]
 
-            elif(group_head[0] == "tee"):
-                head = df_tee.loc[df_tee["tid"] == group_head[1]]
-                anchor_head = head.iloc[0]["top_1_id"]
-                hbor = head.iloc[0]["Processed Diameter_DN1"]
-                tail = df_tee.loc[df_tee["tid"] == group_tail[1]]
-                anchor_tail = tail.iloc[0]["bottom_1_id"]
-                tbor = tail.iloc[0]["Processed Diameter_DN2"]
 
-            hpos = findposition(anchor_head)
-            tpos = findposition(anchor_tail)
-            hstu = map_name("tube", hbor)
-            branch_name = f"/B{level_counts['BRANCH']}/B{level_counts['BRANCH']}"
-
-            branch = E3DModel("BRANCH", branch_name, {
-                # 必填项：HPOS TPOS HDIR TDIR LHEA LTAI HBOR TBOR HCON DETA TEMP HSTU PSPE TCON
-                "BUIL": "false",
-                "SHOP": "false",
-                "HPOS": f"E {hpos[0]:.3f}mm N {hpos[1]:.3f}mm U {hpos[2]:.3f}mm",
-                "TPOS": f"E {tpos[0]:.3f}mm S {tpos[1]:.3f}mm U {tpos[2]:.3f}mm",
-                "HDIR": "N",
-                "TDIR": "N",
-                "LHEA": "true",
-                "LTAI": "true",
-                "HBOR": f"{hbor}mm",
-                "TBOR": f"{tbor}mm",
-                "HCON": "OPEN",
-                "TCON": "BWD",
-                "LNTP": "unset",
-                "TEMP": "-100000degC",  # 管道温度跟保温层厚度相关
-                "PRES": "0pascal",
-                "TPRESS": "0pascal",
-                "HSTU": f"SPCOMPONENT {hstu}",
-                "CCEN": "0",  # 默认为"0"
-                "CCLA": "0",  # 默认为"0"
-                "PSPE": "SPECIFICATION /NJU-SPEC",
-                "DUTY": "'unset'",
-                "DSCO": "'unset'",
-                "PTSP": "'unset'",
-                "INSC": "'unset'",
-                "PTNB": "0",
-                "PLANU": "unset",
-                "DELDSG": "FALSE"
-                          "\n"
-            })
-            level_counts['BRANCH'] += 1
-            if 'PIPE' in hierarchy:
-                hierarchy['PIPE'].add_child(branch)
-            hierarchy['BRANCH'] = branch
-
-            for element in group:
-                if element[0] == "cylinder": continue
-                elif element[0] == "elbow":
-                    row = df_elbow.loc[df_elbow["tid"] == element[1]]
-                    row_dict = row.iloc[0].to_dict()
-                    center = findposition(row_dict["center_id"])
-                    p1 = findposition(row_dict["p1_id"])
-                    p2 = findposition(row_dict["p2_id"])
-                    POS = find_P0(p1, p2, center)
-                    ORI = orientation("elbow", POS, p1, p2)
-                    bore = row_dict["Processed Diameter_DN"]
-                    angle = row_dict["angle"]
-                    SPRE = map_name("elbow", bore, angle=angle)
-                    LSTU = map_name("tube", bore)
-
-                    elbow_attributes = {
-                        "POS": f"E {POS[0]:.3f}mm N {POS[1]:.3f}mm U {POS[2]:.3f}mm",  # 必填数据——弯头元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U and Z is E{round(ORI[2])}N{round(ORI[3])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true"
-                                "\n"
-                    }
-
-                    component_name = f"/ELBOW-{level_counts['COMPONENT']}"
-                    component = E3DModel("ELBOW", component_name, elbow_attributes)
-                    level_counts['COMPONENT'] += 1
-                    if 'BRANCH' in hierarchy:
-                        hierarchy['BRANCH'].add_child(component)
-                    hierarchy['COMPONENT'] = component
-
-                elif element[0] == "tee":
-                    row = df_tee.loc[df_tee["tid"] == element[1]]
-                    row_dict = row.iloc[0].to_dict()
-
-                    POS = findposition(row_dict["bottom_2_id"])
-                    p1 = findposition(row_dict["top_1_id"])
-                    p2 = findposition(row_dict["bottom_1_id"])
-                    p3 = findposition(row_dict["top_2_id"])
-                    ORI = orientation('tee', POS, p1, p2, p3)
-                    bore1 = row_dict["Processed Diameter_DN1"]
-                    bore2 = row_dict["Processed Diameter_DN2"]
-                    SPRE = map_name("tee", bore1, bore2)
-                    LSTU = map_name("tube", bore1)
-
-                    tee_attributes = {
-                        "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
-                        "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U and Z is E{round(ORI[2])}N{round(ORI[3])}U",
-                        # 必填数据——弯头元件的朝向
-                        "BUIl": "false",
-                        "SHOP": "true",
-                        "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
-                        "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
-                        "ORIF": "true",
-                        "POSF": "true"
-                                "\n"
-                    }
-
-                    component_name = f"/TEE-{level_counts['COMPONENT']}"
-                    component = E3DModel("TEE", component_name, tee_attributes)
-                    level_counts['COMPONENT'] += 1
-                    if 'BRANCH' in hierarchy:
-                        hierarchy['BRANCH'].add_child(component)
-                    hierarchy['COMPONENT'] = component
 
     # 生成命令
     commands = site.generate_commands()
@@ -309,23 +116,57 @@ def process_data():
         print(command)
 
 
-# 映射dn值对应的名称，不需要angle的元件angle为-1，三通需要两个bore
+# 映射dn值对应的名称，三通,大小头需要两个bore
+# 初始化失败计数器
+fail_count = {
+    'tube': 0,
+    'elbow': 0,
+    'tee': 0,
+    'redu': 0,
+    'flan': 0,
+    'gask': 0,
+    'valv': 0
+}
+
 def map_name(type, bore1, bore2=None, angle=None):
-    if type == 'tube':
-        return dic_tube[bore1]
-    elif type == 'elbow':
-        return dic_elbow[(bore1, angle)]
-    elif type == 'tee':
-        return dic_tee[(bore1, bore2)]
+    try:
+        if type == 'tube':
+            return dic_tube[bore1]
+        elif type == 'elbow':
+            return dic_elbow[(bore1, angle)]
+        elif type == 'tee':
+            return dic_tee[(bore1, bore2)]
+        elif type == 'redu':
+            return dic_redu[(bore1, bore2)]
+        elif type == 'flan':
+            return dic_flan[bore1]
+        elif type == 'gask':
+            return dic_gask[bore1]
+        elif type == 'valv':
+            return dic_valv[bore1]
+    except KeyError:
+        fail_count[type] += 1
+        print(f"[FAIL] Type: {type}, Bore1: {bore1}, Bore2: {bore2}, Angle: {angle}")
+        return None
+
 
  # 预处理：创建dn对应字典
-sheets_ref = pd.read_excel(".\\resourse\\reflaction.xlsx", sheet_name=None)
+sheets_ref = pd.read_excel(".\\resourse_new\\reflaction.xlsx", sheet_name=None, header=None)
 df_elbow = sheets_ref['elbow']
 df_tube = sheets_ref["tube"]
 df_tee = sheets_ref["tee"]
+df_redu = sheets_ref["redu"]
+df_flan = sheets_ref["flan"]
+df_gask = sheets_ref["gask"]
+df_valv = sheets_ref["valv"]
 dic_tube = dict(zip(df_tube.iloc[:, 2], df_tube.iloc[:, 0]))
 dic_elbow = dict(zip(zip(df_elbow.iloc[:, 2], df_elbow.iloc[:, 3]), df_elbow.iloc[:, 0]))
 dic_tee = dict(zip(zip(df_tee.iloc[:, 2], df_tee.iloc[:, 3]), df_tee.iloc[:, 0]))
+dic_redu = dict(zip(zip(df_redu.iloc[:, 2], df_redu.iloc[:, 3]), df_redu.iloc[:, 0]))
+dic_flan = dict(zip(df_flan.iloc[:, 2], df_flan.iloc[:, 0]))
+dic_gask = dict(zip(df_gask.iloc[:, 2], df_gask.iloc[:, 0]))
+dic_valv = dict(zip(df_valv.iloc[:, 2], df_valv.iloc[:, 0]))
+print(len(dic_elbow))
 
 # 创建处理数据按钮
 tk.Button(root, text="点一下|自动出来PML命令！", command=process_data).pack(pady=20)

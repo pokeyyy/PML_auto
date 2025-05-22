@@ -241,14 +241,116 @@ def round_to_nearest(value):
     closest = min(targets, key=lambda x: abs(x - value))
     return closest
 
+def get_seq(path):
+    sheets = pd.read_excel(path,sheet_name=None)
+
+    # Gather component info
+    components = []
+    #anchors
+    anchors = {}
+    # cylinders
+    for _, row in sheets['cylinders'].iterrows():
+        components.append({
+            'type': 'cylinder',
+            'id': int(row['tid']),
+            'anchors': {int(row['top_id']), int(row['bottom_id'])}
+        })
+    # elbows
+    for _, row in sheets['elbows'].iterrows():
+        components.append({
+            'type': 'elbow',
+            'id': int(row['tid']),
+            'anchors': {int(row['p1_id']), int(row['p2_id'])}
+        })
+    # tees
+    for _, row in sheets['tees'].iterrows():
+        components.append({
+            'type': 'tee',
+            'id': int(row['tid']),
+            'anchors': {int(row['top_1_id']), int(row['bottom_1_id'])}
+        })
+    # valves
+    for _, row in sheets['valves'].iterrows():
+        components.append({
+            'type': 'valve',
+            'id': int(row['tid']),
+            'anchors': {int(row['p1_id']), int(row['p2_id'])}
+        })
+    # reducers
+    for _, row in sheets['reducers'].iterrows():
+        components.append({
+            'type': 'reducer',
+            'id': int(row['tid']),
+            'anchors': {int(row['p1_id']), int(row['p2_id'])}
+        })
+    # flanges
+    for _, row in sheets['flanges'].iterrows():
+        components.append({
+            'type': 'flange',
+            'id': int(row['tid']),
+            'anchors': {int(row['p1_id']), int(row['p2_id'])}
+        })
+    # gaskets
+    for _, row in sheets['gaskets'].iterrows():
+        components.append({
+            'type': 'gasket',
+            'id': int(row['tid']),
+            'anchors': {int(row['p1_id']), int(row['p2_id'])}
+        })
+    #anchors
+    for _, row in sheets['anchors'].iterrows():
+        # 跳过含空值的行
+        if pd.isna(row['comp1']) or pd.isna(row['tid_comp1']) or \
+                pd.isna(row['comp2']) or pd.isna(row['tid_comp2']) or \
+                pd.isna(row['tid']):
+            continue  # 跳过这行
+
+        comp1 = (row['comp1'], int(row['tid_comp1']))
+        comp2 = (row['comp2'], int(row['tid_comp2']))
+        id = int(row['tid'])
+        anchors[id] = {comp1, comp2}
+
+    #anchors索引
+    comps_map = {
+        (comp['type'], comp['id']): comp['anchors']
+        for comp in components
+    }
+
+    # Traverse groups
+    results = []
+    for _, grp in sheets['groups'].iterrows():
+        current_group = []
+
+        current_anchor = int(grp['top_anchors'])
+        current_type = grp['top_comp']
+        current_id = int(grp['top_id'])
+        current_comp = (current_type, current_id)
+
+        bottom_id = int(grp['bottom_id'])
+        # Traverse path
+        while True:
+            current_group.append(current_comp)
+            if(current_id == bottom_id):
+                break
+            current_anchors = comps_map[current_comp]
+            other_anchor = (current_anchors - {current_anchor}).pop()
+            other_comps = anchors[other_anchor]
+            other_comp = (other_comps - {current_comp}).pop()
+
+            current_anchor = other_anchor
+            current_comp = other_comp
+            current_id = current_comp[1]
+
+        results.append(current_group)
+    return results
+
+
+
 # 测试
 if __name__ == '__main__':
-    P1 = [378882.5835,346803.0776,5359.899035]  # 第一个端点
-    P2 = [378882.5835,346549.0776,5613.899035]  # 第二个端点
-    C = [378882.5835,346803.0776,5613.899035]  # 圆心
-
-    angle = get_angle(C, P1, P2)
-    print("angle：", angle)
+    path = 'resourse_new/E3D_2_Demo2.xlsx'
+    res = get_seq(path)
+    print(res)
 
 
 

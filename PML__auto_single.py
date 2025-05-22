@@ -6,11 +6,6 @@ from tkinter import messagebox
 from tools import orientation, find_P0, direction, move_points_along_line, transcoord, round_to_nearest, get_angle
 from E3DModel import E3DModel, create_branch, create_PIPE, create_component_1, create_component_2, create_component_3, create_ZONE
 
-"""
-根据Excel内首行title类型[title修改行：113]判断component类型(南大打组案例Waiting)
-注意：管件坐标值尚未填写（所有必填命令同理），生成的PML命令不完整
-"""
-
 
 # 创建主窗口
 root = tk.Tk()
