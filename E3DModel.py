@@ -93,7 +93,7 @@ def create_branch(hpos,tpos,hdir,tdir,hbor,tbor,hstu,purp):
     }
 
 # elbow tee
-def create_component_1(POS,ORI,SPRE,LSTU):
+def create_component_1(POS,ORI,SPRE,LSTU,arrive = 1,leave = 2):
     return {
         "POS": f"E {POS[0]:.3f}mm N {POS[1]:.3f}mm U {POS[2]:.3f}mm",  # 必填数据——弯头元件的坐标值
         "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U and Z is E{round(ORI[2])}N{round(ORI[3])}U",
@@ -103,12 +103,14 @@ def create_component_1(POS,ORI,SPRE,LSTU):
         "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
         "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
         "ORIF": "true",
-        "POSF": "true"
+        "POSF": "true",
+        "ARRIVE": f"{arrive}",
+        "LEAVE": f"{leave}"
                  "\n"
     }
 
 #redu valv
-def create_component_2(POS,ORI,SPRE,LSTU):
+def create_component_2(POS,ORI,SPRE,LSTU,arrive = 1,leave = 2):
     return {
         "POS": f"E {POS[0]}mm N {POS[1]}mm U {POS[2]}mm",  # 必填数据——三通元件的坐标值
         "ORI": f"X is E{round(ORI[0])}N{round(ORI[1])}U",
@@ -118,7 +120,9 @@ def create_component_2(POS,ORI,SPRE,LSTU):
         "SPRE": f"SPCOMPONENT {SPRE}",  # 必填数据——管道等级中对应弯头元件的name
         "LSTU": f"SPCOMPONENT {LSTU}",  # 必填数据——管道等级中对应管道的元件name
         "ORIF": "true",
-        "POSF": "true"
+        "POSF": "true",
+        "ARRIVE": f"{arrive}",
+        "LEAVE": f"{leave}"
                 "\n"
     }
 

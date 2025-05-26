@@ -190,41 +190,6 @@ def move_points_along_line(p1, p2, distance):
 
     return new_p1, new_p2
 
-
-# 创建branch
-def create_branch(hpos,tpos,hdir,tdir,hbor,tbor,hstu):
-    return {
-        # 必填项：HPOS TPOS HDIR TDIR LHEA LTAI HBOR TBOR HCON DETA TEMP HSTU PSPE TCON
-        "BUIL": "false",
-        "SHOP": "false",
-        "HPOS": f"E {hpos[0]:.3f}mm N {hpos[1]:.3f}mm U {hpos[2]:.3f}mm",
-        "TPOS": f"E {tpos[0]:.3f}mm N {tpos[1]:.3f}mm U {tpos[2]:.3f}mm",
-        "HDIR": f"E{hdir[0]:.3f}N{hdir[1]:.3f}U",
-        "TDIR": f"E{tdir[0]:.3f}N{tdir[1]:.3f}U",
-        "LHEA": "true",
-        "LTAI": "true",
-        "HBOR": f"{hbor}mm",
-        "TBOR": f"{tbor}mm",
-        "HCON": "OPEN",
-        "TCON": "BWD",
-        "LNTP": "unset",
-        "TEMP": "-100000degC",  # 管道温度跟保温层厚度相关
-        "PRES": "0pascal",
-        "TPRESS": "0pascal",
-        "HSTU": f"SPCOMPONENT {hstu}",
-        "CCEN": "0",  # 默认为"0"
-        "CCLA": "0",  # 默认为"0"
-        "PSPE": "SPECIFICATION /NJU-SPEC",
-        "DUTY": "'unset'",
-        "DSCO": "'unset'",
-        "PTSP": "'unset'",
-        "INSC": "'unset'",
-        "PTNB": "0",
-        "PLANU": "unset",
-        "DELDSG": "FALSE"
-                  "\n"
-    }
-
 #对于[323.08437778372667, 379.3669199267068, 5.190823758635305]形式的转化
 def transcoord(coord):
     coord = coord.split(",")
@@ -317,20 +282,24 @@ def get_seq(path):
     }
 
     # Traverse groups
-    results = []
+    results_comp = []
+    results_anchor = []
     for _, grp in sheets['groups'].iterrows():
         current_group = []
-
+        group_anchor = []
         current_anchor = int(grp['top_anchors'])
         current_type = grp['top_comp']
         current_id = int(grp['top_id'])
         current_comp = (current_type, current_id)
 
         bottom_id = int(grp['bottom_id'])
+        bottom_anchor = int(grp['bottom_anchors'])
         # Traverse path
         while True:
             current_group.append(current_comp)
+            group_anchor.append(current_anchor)
             if(current_id == bottom_id):
+                group_anchor.append(bottom_anchor)
                 break
             current_anchors = comps_map[current_comp]
             other_anchor = (current_anchors - {current_anchor}).pop()
@@ -341,16 +310,20 @@ def get_seq(path):
             current_comp = other_comp
             current_id = current_comp[1]
 
-        results.append(current_group)
-    return results
+        results_anchor.append(group_anchor)
+        results_comp.append(current_group)
+    return results_comp, results_anchor
 
 
 
 # 测试
 if __name__ == '__main__':
     path = 'resourse_new/E3D_2_Demo2.xlsx'
-    res = get_seq(path)
+    res,res2 = get_seq(path)
     print(res)
+    print(res2)
+    print(len(res[0]))
+    print(len(res2[0]))
 
 
 

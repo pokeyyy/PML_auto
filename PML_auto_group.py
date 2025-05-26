@@ -3,7 +3,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
-from tools import orientation, find_P0, direction, move_points_along_line, transcoord, round_to_nearest, get_angle
+from tools import orientation, find_P0, direction, move_points_along_line, transcoord, round_to_nearest, get_angle, get_seq
 from E3DModel import E3DModel, create_branch, create_PIPE, create_component_1, create_component_2, create_component_3, create_ZONE
 
 
@@ -96,10 +96,199 @@ def process_data():
 
 
     for base_file_path in base_file_paths:
-        get_seq(base_file_path)
-        sheet = pd.read_excel(base_file_path,sheet_name='groups')
+        groups_comp, groups_anchor = get_seq(base_file_path)
+        sheets = pd.read_excel(base_file_path, sheet_name=None)
+        sheet_cylinders = sheets['cylinders']
+        sheet_elbows = sheets['elbows']
+        sheet_tees = sheets['tees']
+        sheet_valves = sheets['valves']
+        sheet_reducers = sheets['reducers']
+        sheet_flanges = sheets['flanges']
+        sheet_gaskets = sheets['gaskets']
+        sheet_anchors = sheets['anchors']
 
+        for i in range(len(groups_comp)):
+            comps = groups_comp[i]
+            anchors = groups_anchor[i]
+            #branch创建
+            hpos = findposition(anchors[0])
+            hpos_next = findposition(anchors[1])
+            tpos = findposition(anchors[-1])
+            tpos_last = findposition(anchors[-2])
+            hdir = direction(hpos, hpos_next)
+            tdir = direction(tpos, tpos_last)
+            hbor = sheet_cylinders.loc[sheet_cylinders['tid'] == comps[0][1], 'Processed Diameter_DN'].iloc[0]
+            tbor = sheet_cylinders.loc[sheet_cylinders['tid'] == comps[-1][1], 'Processed Diameter_DN'].iloc[0]
+            hstu = map_name("tube", hbor)
 
+            branch_attributes = create_branch(hpos, tpos, hdir, tdir, hbor, tbor, hstu, "PD")
+            branch_name = f"{pipe_name}/B{level_counts['BRANCH']}"
+            branch = E3DModel("BRANCH", branch_name, branch_attributes)
+            level_counts['BRANCH'] += 1
+            if 'PIPE' in hierarchy:
+                hierarchy['PIPE'].add_child(branch)
+            hierarchy['BRANCH'] = branch
+
+            #comp创建
+            for now in range(len(comps)):
+                current_comp = comps[now]
+                current_anchor = anchors[now]
+
+                if current_comp[0] == "cylinder":
+                    continue
+
+                elif current_comp[0] == 'elbow':
+                    row = sheet_elbows.loc[sheet_elbows['tid'] == current_comp[1]]
+                    row_dict = row.iloc[0].to_dict()
+
+                    p1 = findposition(row_dict["p1_id"])
+                    p2 = findposition(row_dict["p2_id"])
+                    center = findposition(row_dict["center_id"])
+                    POS = find_P0(p1, p2, center)
+                    ORI = orientation("elbow", POS, p1, p2)
+                    bore = row_dict["Processed Diameter_DN"]
+                    angle = get_angle(POS, p1, p2)
+                    angle = round_to_nearest(angle)
+                    SPRE = map_name("elbow", bore, angle=angle)
+                    LSTU = map_name("tube", bore)
+                    #判断arrive
+                    arrive = 1
+                    leave = 2
+                    if row_dict["p1_id"] != current_anchor:
+                        arrive, leave = leave, arrive
+
+                    elbow_attributes = create_component_1(POS, ORI, SPRE, LSTU, arrive, leave)
+                    component_name = f"/ELBOW-{level_counts['COMPONENT']}"
+                    component = E3DModel("ELBOW", component_name, elbow_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+                elif current_comp[0] == "tee":
+                    row = sheet_tees.loc[sheet_tees['tid'] == current_comp[1]]
+                    row_dict = row.iloc[0].to_dict()
+
+                    POS = findposition(row_dict["bottom_2_id"])
+                    p1 = findposition(row_dict["top_1_id"])
+                    p2 = findposition(row_dict["bottom_1_id"])
+                    p3 = findposition(row_dict["top_2_id"])
+                    ORI = orientation('tee', POS, p1, p2, p3)
+                    bore1 = row_dict["Processed Diameter_DN1"]
+                    bore2 = row_dict["Processed Diameter_DN2"]
+                    SPRE = map_name("tee", bore1, bore2)
+                    LSTU = map_name("tube", bore1)
+                    # 判断arrive
+                    arrive = 1
+                    leave = 2
+                    if row_dict["top_1_id"] != current_anchor:
+                        arrive, leave = leave, arrive
+
+                    tee_attributes = create_component_1(POS, ORI, SPRE, LSTU, arrive, leave)
+                    component_name = f"/TEE-{level_counts['COMPONENT']}"
+                    component = E3DModel("TEE", component_name, tee_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+                elif current_comp[0] == "reducer":
+                    row = sheet_reducers.loc[sheet_reducers['tid'] == current_comp[1]]
+                    row_dict = row.iloc[0].to_dict()
+
+                    POS = findposition(row_dict["p1_id"])
+                    p2 = findposition(row_dict["p2_id"])
+                    bore1 = row_dict["Processed Diameter_DN1"]
+                    bore2 = row_dict["Processed Diameter_DN2"]
+                    ORI = orientation('redu', POS, p2)
+                    SPRE = map_name("redu", bore1, bore2)
+                    LSTU = map_name("tube", bore2)
+                    # 判断arrive
+                    arrive = 1
+                    leave = 2
+                    if row_dict["p1_id"] != current_anchor:
+                        arrive, leave = leave, arrive
+                        LSTU = map_name("tube", bore1)
+
+                    redu_attributes = create_component_2(POS, ORI, SPRE, LSTU, arrive, leave)
+                    component_name = f"/REDU-{level_counts['COMPONENT']}"
+                    component = E3DModel("REDUCER", component_name, redu_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+                elif current_comp[0] == "valve":
+                    row = sheet_valves.loc[sheet_valves['tid'] == current_comp[1]]
+                    row_dict = row.iloc[0].to_dict()
+
+                    hpos = findposition(row_dict["p1_id"])
+                    tpos = findposition(row_dict["p2_id"])
+                    bore = row_dict["Processed Diameter_DN"]
+                    POS = tuple((x + y) / 2 for x, y in zip(hpos, tpos))
+                    ORI = orientation('redu', POS, tpos)
+                    SPRE = map_name("valv", bore)
+                    LSTU = map_name("tube", bore)
+
+                    arrive = 1
+                    leave = 2
+                    if row_dict["p1_id"] != current_anchor:
+                        arrive, leave = leave, arrive
+
+                    valv_attributes = create_component_2(POS, ORI, SPRE, LSTU, arrive, leave)
+                    component_name = f"/VALV-{level_counts['COMPONENT']}"
+                    component = E3DModel("VALVE", component_name, valv_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+                elif current_comp[0] == "flange":
+                    row = sheet_flanges.loc[sheet_flanges['tid'] == current_comp[1]]
+                    row_dict = row.iloc[0].to_dict()
+
+                    POS = findposition(row_dict["p1_id"])
+                    p2 = findposition(row_dict["p2_id"])
+                    bore = row_dict["Processed Diameter_DN"]
+                    ORI = orientation('redu', POS, p2)
+                    SPRE = map_name("flan", bore)
+                    LSTU = map_name("tube", bore)
+
+                    arrive = 1
+                    leave = 2
+                    if row_dict["p1_id"] != current_anchor:
+                        arrive, leave = leave, arrive
+
+                    flan_attributes = create_component_3(POS, ORI, SPRE, LSTU, arrive, leave)
+                    component_name = f"/FLAN-{level_counts['COMPONENT']}"
+                    component = E3DModel("FLANGE", component_name, flan_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
+
+                elif current_comp[0] == "gasket":
+                    row = sheet_gaskets.loc[sheet_gaskets['tid'] == current_comp[1]]
+                    row_dict = row.iloc[0].to_dict()
+                    POS = findposition(row_dict["p1_id"])
+                    p2 = findposition(row_dict["p2_id"])
+                    bore = row_dict["Processed Diameter_DN"]
+                    ORI = orientation('redu', POS, p2)
+                    SPRE = map_name("gasket", bore)
+                    LSTU = map_name("tube", bore)
+
+                    arrive = 1
+                    leave = 2
+                    if row_dict["p1_id"] != current_anchor:
+                        arrive, leave = leave, arrive
+
+                    gasket_attributes = create_component_3(POS, ORI, SPRE, LSTU, arrive, leave)
+                    component_name = f"/GASK-{level_counts['COMPONENT']}"
+                    component = E3DModel("GASKET", component_name, gasket_attributes)
+                    level_counts['COMPONENT'] += 1
+                    if 'BRANCH' in hierarchy:
+                        hierarchy['BRANCH'].add_child(component)
+                    hierarchy['COMPONENT'] = component
 
 
     # 生成命令
@@ -167,6 +356,8 @@ dic_flan = dict(zip(df_flan.iloc[:, 2], df_flan.iloc[:, 0]))
 dic_gask = dict(zip(df_gask.iloc[:, 2], df_gask.iloc[:, 0]))
 dic_valv = dict(zip(df_valv.iloc[:, 2], df_valv.iloc[:, 0]))
 print(len(dic_elbow))
+
+
 
 # 创建处理数据按钮
 tk.Button(root, text="点一下|自动出来PML命令！", command=process_data).pack(pady=20)
